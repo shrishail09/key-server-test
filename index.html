@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Key Server Testing Interface</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet">
+    <style>
+        * { font-family: "JetBrains Mono", sans-serif; font-weight: 400; box-sizing: border-box;}
+
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px;
+            padding-top: 36px;
+            padding-bottom: 2rem;
+            background-color: #eaeaea; 
+            width: 100vw; 
+            min-height: 100vh; 
+            margin: 0;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            height: fit-content;
+            background-color: white;
+            border-radius: 8px;
+            border: 1px solid #dcdcdc;
+            /* box-shadow: 0 2px 16px 4px rgba(112, 144, 176, 0.3); */
+            width: 600px;
+            max-width: 600px;
+            margin-bottom: 2rem;
+        }
+        form{padding: 2rem;}
+        .button-container{ display: flex; justify-content: end; align-items: end;}
+        .title-container{ background-color: black; border-radius: 8px 8px 0 0; padding: 2rem; color: white;}
+        .fields{display: flex; justify-content: space-between; }
+        .form-field{display: flex; flex-direction: column;}
+        .form-field input{padding: 6px 8px; border-radius: 4px; border: 1px solid black;}
+        .form-field input:focus{outline: 2px solid rgba(0,0,0,.2);}
+        .title-container h1{margin: 0;}
+        label { margin-right: 10px; }
+        input, button { margin-top: 10px; margin-bottom: 10px; }
+        form button{ border: 1px solid black; background: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; transition: all .4s; height: fit-content; display: flex; align-items: center;}
+        form button:hover{background-color: black; color: white;}
+        form button:hover svg{fill: white;}
+        .success-toast{background-color: rgba(46, 222, 166, .2); width: 100%; margin-top: 28px; border-radius: 4px; padding: 6px 12px; color: rgb(34, 167, 125);}
+        .error-text{color: red;}
+        #output { margin-top: 20px; padding: 10px; background-color: rgba(0,0,0,.04); border: 1px solid #ccc; border-radius: 4px;}
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('testForm');
+            let output = undefined;
+
+            form.addEventListener('submit', function(event) {
+                event.preventDefault();
+                if(!output) {
+                    const outputElement = document.createElement('div');
+                    outputElement.setAttribute('id', 'output');
+                    form.appendChild(outputElement);
+                }
+
+                output = document.getElementById('output')
+                const baseUrl = `${document.getElementById('baseUrl').value}:${document.getElementById('port').value}`;
+                output.innerHTML = '<p style="margin-bottom: 28px;">Running tests...</p>';
+
+                runTests(baseUrl).then(() => {
+                    output.innerHTML += '<p class="success-toast">All tests completed successfully.</p>';
+                }).catch(error => {
+                    output.innerHTML += `<p>Error during tests: ${error.message}</p>`;
+                });
+            });
+
+            async function runTests(baseUrl) {
+                try {
+                    await createKey(baseUrl);
+                    const keyID = await getAvailableKey(baseUrl);
+                    await keepAliveKey(baseUrl, keyID);
+                    await getKeyInfo(baseUrl, keyID);
+                    await unblockKey(baseUrl, keyID);
+                    await deleteKey(baseUrl, keyID);
+                } catch (error) {
+                    throw error; // This will be caught in the outer catch block
+                }
+            }
+
+            function fetchRequest(url, method = 'GET') {
+                return fetch(url, { method: method })
+                    .then(response => {
+                        if (!response.ok) throw new Error(`HTTP error for endpoint - ${url}! Status: ${response.status}`);
+                        return response.json();
+                    })
+            }
+
+            function createKey(baseUrl) {
+                return fetchRequest(`${baseUrl}/keys`, 'POST')
+                    .then(data => {
+                        output.innerHTML += `<p>Created Key: ${data.keyID}</p>`;
+                        return data.keyID;
+                    })
+            }
+
+            function getAvailableKey(baseUrl) {
+                return fetchRequest(`${baseUrl}/keys`)
+                    .then(data => {
+                        if(data.keyID) {
+                            output.innerHTML += `<p>Retrieved Key: ${data.keyID}</p>`;
+                        } else {
+                            output.innerHTML += `<p class="error-text">Retrieved Key: Missing key "keyID" in response</p>`;
+                        }
+                        return data.keyID;
+                    });
+            }
+
+            async function unblockKey(baseUrl, keyID) {
+                await fetchRequest(`${baseUrl}/keys/${keyID}`, 'PUT');
+                const keyInfo = await fetchRequest(`${baseUrl}/keys/${keyID}`, 'GET');
+                if(keyInfo.isBlocked === false) {
+                    output.innerHTML += `<p>Unblocked Key: ${keyID}</p>`;
+                } else {
+                    output.innerHTML += `<p class="error-text">Unblocked Key: Key is still blocked</p>`;
+                }
+                
+            }
+
+            function getKeyInfo(baseUrl, keyID) {
+                return fetchRequest(`${baseUrl}/keys/${keyID}`, 'GET')
+                    .then((data) => {
+                        if(!data) {
+                            output.innerHTML += `<p>Get Key info: no response returned</p>`;
+                            // throw new Error("Get Key info: no response returned");
+                            return;
+                        }
+
+                        if(data.hasOwnProperty("isBlocked") && data.hasOwnProperty("blockedAt") && data.hasOwnProperty("createdAt")) {
+                            output.innerHTML += `<p>Get key info: ${JSON.stringify(data, null, '\t')}</p>`;
+                            return;
+                        }
+                        if(!data.hasOwnProperty("isBlocked")) {
+                            output.innerHTML += `<p>Get Key Info: Missing key "isBlocked" in response</p>`;
+                        }
+                        if(!data.hasOwnProperty("blockedAt")) {
+                            output.innerHTML += `<p>Get Key Info: Missing key "blockedAt" in response</p>`;
+                        }
+                        if(!data.hasOwnProperty("createdAt")) {
+                            output.innerHTML += `<p>Get Key Info: Missing key "createdAt" in response</p>`;
+                        }
+                    });
+            }
+
+            async function deleteKey(baseUrl, keyID) {
+                await fetchRequest(`${baseUrl}/keys/${keyID}`, 'DELETE');
+                const keyInfoResponse = await fetch(`${baseUrl}/keys/${keyID}`);
+                if(keyInfoResponse.status === 404) {
+                    output.innerHTML += `<p>Deleted Key: ${keyID}</p>`;
+                } else {
+                    output.innerHTML += `<p class="error-text">Deleted Key: Key should not be retrievable after deleting</p>`;
+                }
+                
+            }
+
+            async function keepAliveKey(baseUrl, keyID) {
+                await fetchRequest(`${baseUrl}/keepalive/${keyID}`, 'PUT')
+                const keyInfoResponse = await fetch(`${baseUrl}/keys/${keyID}`);
+                if (keyInfoResponse.status === 200) {
+                    output.innerHTML += `<p>Keep-alive for Key: ${keyID}</p>`;
+                } else {
+                    output.innerHTML += `<p class="error-text">Keep-alive for Key: Key should be retrievable after keeping-alive</p>`;
+                }
+            }
+        });
+    </script>
+</head>
+<body>
+    <section class="container">
+        <div class="title-container">
+            <h1>API Key Server Test Interface</h1>
+        </div>
+        <form id="testForm">
+            <div class="fields">
+                <div class="form-field" style="width: 60%;">
+                    <label for="baseUrl">Base URL</label>
+                    <input type="text" id="baseUrl" value="http://localhost" required>
+                </div>
+                <div class="form-field">
+                    <label for="port">Port</label>
+                    <input type="text" id="port" value="5000" required>
+                </div>
+            </div>
+            <div class="button-container">
+                <button type="submit">
+                    Run Tests
+                    <svg style="margin-left: 8px;" width="16" height="16" viewBox="0 0 24 24" style="fill: black;"><path d="M7 6v12l10-6z"></path></svg>
+                </button>
+            </div>
+            <!-- <div id="output"></div> -->
+        </form>
+    </section>
+</body>
+</html>
